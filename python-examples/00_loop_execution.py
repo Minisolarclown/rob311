@@ -16,7 +16,8 @@ if __name__ == "__main__":
         count += 1
 
         goal += DT
-        while(time.time() - start < goal):
+        while((time.time() - start < goal) & (time.time() - start < EXEC_TIME)):
             pass
-    print(time.time() - start)
-    print("Frequency: " + str(count/(time.time() - start)))
+    t = time.time()
+    print("Execution time: " + str(t - start))
+    print("Frequency: " + str(count/(t - start)))
