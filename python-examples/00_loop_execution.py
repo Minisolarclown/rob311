@@ -7,11 +7,13 @@ DT = 1/FREQ
 
 if __name__ == "__main__":
     start = time.time()
-    t = 0.0
 
     # Print "ROB311 @UM-ROBOTICS" for 5 seconds @200Hz
-
-    # YOUR
-    # CODE 
-    # GOES 
-    # HERE
+    goal = 0
+    while(time.time() - start < EXEC_TIME):
+        print("ROB311 @UM-ROBOTICS")
+        
+        goal += DT
+        while(time.time() - start < goal):
+            pass
+    print(time.time() - start)
