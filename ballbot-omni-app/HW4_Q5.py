@@ -9,8 +9,7 @@ from DataLogger import dataLogger
 
 # ---------------------------------------------------------------------------
 """
-ROB 311 - Ball-bot kinetics and kinematics demo
-
+ROB 311 - Ball-bot Sensing and Reading Demo
 This program uses a soft realtime loop to enforce loop timing. Soft real time loop is a  class
 designed to allow clean exits from infinite loops with the potential for post-loop cleanup operations executing.
 
@@ -176,25 +175,9 @@ class SoftRealtimeLoop:
         self.ttarg += self.dt
         return self.t1 - self.t0
 
-# ---------------------------------------------------------------------------
-
-def register_topics(ser_dev:SerialProtocol):
-    ser_dev.serializer_dict[101] = [lambda bytes: np.frombuffer(bytes, dtype=mo_cmds_dtype), lambda data: data.tobytes()]
-    ser_dev.serializer_dict[121] = [lambda bytes: np.frombuffer(bytes, dtype=mo_states_dtype), lambda data: data.tobytes()]
-
-# ---------------------------------------------------------------------------
-
-FREQ = 200
-DT = 1/FREQ
-
 RW = 0.0048
 RK = 0.1210
 ALPHA = np.deg2rad(45)
-
-# ---------------------------------------------------------------------------
-
-# Wheel rotation to Ball rotation transformation matrix
-
 J11 = -2 * RW/(3 * RK * np.cos(ALPHA))
 J12 = RW / (3 * RK * np.cos(ALPHA))
 J13 = J12
@@ -209,43 +192,6 @@ J33 = J31
 J = np.array([[J21, J22, J23], [J11, J12, J13], [J31, J32, J33]])
 
 # ---------------------------------------------------------------------------
-
-def compute_motor_torques(Tx, Ty, Tz):
-    '''
-    Parameters:
-    ----------
-    Tx: Torque along x-axis
-    Ty: Torque along y-axis
-    Tz: Torque along z-axis
-
-    Returns:
-    --------
-            Ty
-            T1
-            |
-            |
-            |
-            . _ _ _ _ Tx
-           / \
-          /   \
-         /     \
-        /       \
-       T2       T3
-
-    T1: Motor Torque 1
-    T2: Motor Torque 2
-    T3: Motor Torque 3
-    '''
-
-    T1 = (-0.3333) * (Tz - (2.8284 * Ty))
-    T2 = (-0.3333) * (Tz + (1.4142 * (Ty + 1.7320 * Tx)))
-    T3 = (-0.3333) * (Tz + (1.4142 * (Ty - 1.7320 * Tx)))
-
-    return T1, T2, T3
-
-# ---------------------------------------------------------------------------
-
-
 def compute_phi(psi_1_counts, psi_2_counts, psi_3_counts):
     '''
     Parameters:
@@ -287,11 +233,21 @@ def rad_2_counts(psi_rad):
 
     return psi_counts
 
-# ---------------------------------------------------------------------------
+FREQ = 200
+DT = 1/FREQ
+
+RW = 0.0048
+RK = 0.1210
+ALPHA = np.deg2rad(45)
+
+def register_topics(ser_dev:SerialProtocol):
+    # Mo :: Commands, States
+    ser_dev.serializer_dict[101] = [lambda bytes: np.frombuffer(bytes, dtype=mo_cmds_dtype), lambda data: data.tobytes()]
+    ser_dev.serializer_dict[121] = [lambda bytes: np.frombuffer(bytes, dtype=mo_states_dtype), lambda data: data.tobytes()]
 
 if __name__ == "__main__":
     trial_num = int(input('Trial Number? '))
-    filename = './data/ROB311_Test%i' % trial_num
+    filename = 'ROB311_Test%i' % trial_num
     dl = dataLogger(filename + '.txt')
 
     ser_dev = SerialProtocol()
@@ -305,24 +261,9 @@ if __name__ == "__main__":
     commands = np.zeros(1, dtype=mo_cmds_dtype)[0]
     states = np.zeros(1, dtype=mo_states_dtype)[0]
 
-    theta_roll = 0.0
-    theta_pitch = 0.0
-
-    psi_1 = 0.0
-    psi_2 = 0.0
-    psi_3 = 0.0
-
-    phi_x = 0.0
-    phi_y = 0.0
-    phi_z = 0.0
-
-    # Motor torques
-    T1 = 0.0
-    T2 = 0.0
-    T3 = 0.0
-
-
     commands['kill'] = 0.0
+
+    dpsi = np.zeros((3, 1))
 
     # Time for comms to sync
     time.sleep(1.0)
@@ -331,80 +272,58 @@ if __name__ == "__main__":
 
     print('Beginning program!')
     i = 0
+    cal_flag = 0
 
     for t in SoftRealtimeLoop(dt=DT, report=True):
+        if i == 0 and cal_flag == 0:
+            print('Calibrating...')
+            cal_flag = 1;
         try:
             states = ser_dev.get_cur_topic_data(121)[0]
-            if i == 0:
-                t_start = time.time()
-            i = i + 1
         except KeyError as e:
             continue
+        if i == 0:
+            print('Finished calibration\nStarting loop...')
+            t_start = time.time()
+        i = i + 1
         t_now = time.time() - t_start
+        if(np.floor(t/3)/6 > 1):
+            break
+
+        dpsi[0] = states['dpsi_1']
+        dpsi[1] = states['dpsi_2']
+        dpsi[2] = states['dpsi_3']
+
+        duty = np.floor(t/3)/6
+        commands['motor_1_duty'] = duty
+        commands['motor_2_duty'] = duty
+        commands['motor_3_duty'] = duty
+
+        ser_dev.send_topic_data(101, commands)
 
         # Define variables for saving / analysis here - below you can create variables from the available states
-        
-        # Body lean angles
         theta_x = (states['theta_roll'])  
         theta_y = (states['theta_pitch'])
+        theta_z = (states['theta_yaw'])
 
         # Motor rotations
         psi_1 = states['psi_1']
         psi_2 = states['psi_2']
         psi_3 = states['psi_3']
 
-        # ---------------------------------------------------------
-        # Compute motor torques (T1, T2, and T3) with Tx, Ty, and Tz
-
-        # Beginning with torque rolling toward positive y-axis
-        # CHANGE THESE TO ADJUST THE ROLLING DIRECTION OF YOUR BALL-BOT
-        #Tx = 0
-        #Ty = 0
-        #Tz = 0
-        speed = 0.5
-        n = 7
-        direction = (n * 45)*np.pi/180
-        Tx = speed * np.cos(direction)
-        Ty = speed * np.sin(direction)
-        Tz = 0
-
-        #Tx = 2*(1/2)
-        #Ty = 2*np.sqrt(3)/2
-        #Tz = 0
-
-        T1, T2, T3 = compute_motor_torques(Tx, Ty, Tz)
-
-        # ---------------------------------------------------------
-
-        print("T1: {}, T2: {}, T3: {}".format(T1, T2, T3))
-        commands['motor_1_duty'] = T1
-        commands['motor_2_duty'] = T2
-        commands['motor_3_duty'] = T3  
-
-        # ---------------------------------------------------------
-        # Compute ball rotation (phi) with psi_1, psi_2, and psi_3
-
         phi_x , phi_y, phi_z = compute_phi(rad_2_counts(psi_1), rad_2_counts(psi_2), rad_2_counts(psi_3))
-
-        # ---------------------------------------------
-
+        
 
         # Construct the data matrix for saving - you can add more variables by replicating the format below
-        data = [i] + [t_now] + [theta_x] + [theta_y] + [T1] + [T2] + [T3] + [phi_x] + [phi_y] + [phi_z] + [psi_1] + [psi_2] + [psi_3] + [Tx] + [Ty] + [Tz]
+        data = [i] + [t_now] + [duty] + [theta_x] + [theta_y] + [theta_z] + [phi_x] + [phi_y]+ [phi_z]
         dl.appendData(data)
 
-        print("PHI X: {}, PHI Y: {}, PHI Z: {}".format(phi_x, phi_y, phi_z))
-        ser_dev.send_topic_data(101, commands)
     
     print("Saving data...")
     dl.writeOut()
-
-    print("Resetting Motor commands.")
-    time.sleep(0.25)
+    print("Resetting Motor Commands.")
     commands['kill'] = 1.0
-    time.sleep(0.25)
     commands['motor_1_duty'] = 0.0
     commands['motor_2_duty'] = 0.0
     commands['motor_3_duty'] = 0.0
-    time.sleep(0.25)
     ser_dev.send_topic_data(101, commands)
