@@ -287,14 +287,14 @@ if __name__ == "__main__":
             t_start = time.time()
         i = i + 1
         t_now = time.time() - t_start
-        if(np.floor(t/3)/6 > 1):
+        if(np.floor(t_now/2)/9 >= 1):
             break
 
         dpsi[0] = states['dpsi_1']
         dpsi[1] = states['dpsi_2']
         dpsi[2] = states['dpsi_3']
 
-        duty = np.floor(t/3)/6
+        duty = np.floor(t_now/2)/9
         commands['motor_1_duty'] = duty
         commands['motor_2_duty'] = duty
         commands['motor_3_duty'] = duty
@@ -315,7 +315,7 @@ if __name__ == "__main__":
         
 
         # Construct the data matrix for saving - you can add more variables by replicating the format below
-        data = [i] + [t_now] + [duty] + [theta_x] + [theta_y] + [theta_z] + [phi_x] + [phi_y]+ [phi_z]
+        data = [i] + [t_now] + [duty] + [phi_z]
         dl.appendData(data)
 
     

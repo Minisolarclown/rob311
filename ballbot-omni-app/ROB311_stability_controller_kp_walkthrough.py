@@ -199,11 +199,11 @@ MAX_PLANAR_DUTY = 0.8
 
 # Proportional gains for the stability controllers (X-Z and Y-Z plane)
 
-KP_THETA_X = 6                                  # Adjust until the system balances
-KP_THETA_Y = 9                                 # Adjust until the system balances
+KP_THETA_X = 11                                  # Adjust until the system balances
+KP_THETA_Y = 11                               # Adjust until the system balances
 
-KD_THETA_X = 0.000
-KD_THETA_Y = 0.000
+KD_THETA_X = 0.05
+KD_THETA_Y = 0.05
 #KP_THETA_X = 0
 #KP_THETA_Y = 0
 
@@ -338,7 +338,6 @@ if __name__ == "__main__":
         try:
             states = ser_dev.get_cur_topic_data(121)[0]
             if i == 0:
-                print("AHHHH")
                 t_start = time.time()
             i = i + 1
         except KeyError as e:
@@ -366,8 +365,8 @@ if __name__ == "__main__":
         # Compute motor torques (T1, T2, and T3) with Tx, Ty, and Tz
 
         # Proportional controller
-        Tx = KP_THETA_X * error_x + KD_THETA_X * (error_x - prev_error_x)
-        Ty = KP_THETA_Y * error_y + KD_THETA_Y * (error_y - prev_error_y)
+        Tx = KP_THETA_X * error_x + KD_THETA_X * (error_x - prev_error_x)/DT
+        Ty = KP_THETA_Y * error_y + KD_THETA_Y * (error_y - prev_error_y)/DT
 
         Tz = 0
 
@@ -383,6 +382,7 @@ if __name__ == "__main__":
         # ---------------------------------------------------------
 
         T1, T2, T3 = compute_motor_torques(Tx, Ty, Tz)
+        T1, T2, T3 = 0, 0, 0
 
         # ---------------------------------------------------------
 
@@ -402,8 +402,8 @@ if __name__ == "__main__":
         # Construct the data matrix for saving - you can add more variables by replicating the format below
         data = [i] + [t_now] + [theta_x] + [theta_y] + [T1] + [T2] + [T3] + [phi_x] + [phi_y] + [phi_z] + [psi_1] + [psi_2] + [psi_3]
         dl.appendData(data)
-
-        print("Iteration no. {}, THETA X: {:.2f}, THETA Y: {:.2f}".format(i, theta_x, theta_y))
+        
+        print("Iteration no. {}, THETA X: {:.5f}, THETA Y: {:.5f}".format(i, theta_x*180.0/3.14159, theta_y*180.0/3.14159))
         ser_dev.send_topic_data(101, commands) # Send motor torques
     
   
