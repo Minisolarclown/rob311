@@ -6,6 +6,7 @@ from threading import Thread
 from MBot.Messages.message_defs import mo_states_dtype, mo_cmds_dtype, mo_pid_params_dtype
 from MBot.SerialProtocol.protocol import SerialProtocol
 from DataLogger import dataLogger
+from ps4_controller_api import ROB311BTController
 
 # ---------------------------------------------------------------------------
 """
@@ -199,8 +200,13 @@ MAX_PLANAR_DUTY = 0.8
 
 # Proportional gains for the stability controllers (X-Z and Y-Z plane)
 
-KP_THETA_X = 0.0                                   # Adjust until the system balances
-KP_THETA_Y = 0.0                                   # Adjust until the system balances
+KP_THETA_X = 11                                  # Adjust until the system balances
+KP_THETA_Y = 11                               # Adjust until the system balances
+
+KD_THETA_X = 0.005
+KD_THETA_Y = 0.005
+#KP_THETA_X = 0
+#KP_THETA_Y = 0
 
 # ---------------------------------------------------------------------------
 #############################################################################
@@ -284,11 +290,15 @@ def compute_phi(psi_1, psi_2, psi_3):
 
 if __name__ == "__main__":
     trial_num = int(input('Trial Number? '))
-    filename = 'ROB311_Stability_Test_%i' % trial_num
+    filename = './pid_data/ROB311_Stability_Test_%i' % trial_num
     dl = dataLogger(filename + '.txt')
 
     ser_dev = SerialProtocol()
     register_topics(ser_dev)
+
+    rob311_bt_controller = ROB311BTController(interface="/dev/input/js0")
+    rob311_bt_controller_thread = threading.Thread(target=rob311_bt_controller.listen, args=(10,))
+    rob311_bt_controller_thread.start()
 
     # Init serial
     serial_read_thread = Thread(target = SerialProtocol.read_loop, args=(ser_dev,), daemon=True)
@@ -314,6 +324,10 @@ if __name__ == "__main__":
     # Error in theta
     error_x = 0.0
     error_y = 0.0
+
+    # Previous error in theta
+    prev_error_x = 0.0
+    prev_error_y = 0.0
 
     commands['kill'] = 0.0
 
@@ -351,14 +365,15 @@ if __name__ == "__main__":
         error_x = desired_theta_x - theta_x
         error_y = desired_theta_y - theta_y
 
+
         # ---------------------------------------------------------
         # Compute motor torques (T1, T2, and T3) with Tx, Ty, and Tz
 
         # Proportional controller
-        Tx = KP_THETA_X * error_x
-        Ty = KP_THETA_Y * error_y
+        Tx = KP_THETA_X * error_x + KD_THETA_X * (error_x - prev_error_x)/DT
+        Ty = KP_THETA_Y * error_y + KD_THETA_Y * (error_y - prev_error_y)/DT
 
-        Tz = 0
+        Tz = rob311_bt_controller.tz_demo_1
 
         # ---------------------------------------------------------
         # Saturating the planar torques 
@@ -380,15 +395,19 @@ if __name__ == "__main__":
         # ---------------------------------------------------------
 
         print("Iteration no. {}, T1: {:.2f}, T2: {:.2f}, T3: {:.2f}".format(i, T1, T2, T3))
+        
         commands['motor_1_duty'] = T1
         commands['motor_2_duty'] = T2
         commands['motor_3_duty'] = T3  
 
+        prev_error_x = error_x
+        prev_error_y = error_y
+
         # Construct the data matrix for saving - you can add more variables by replicating the format below
         data = [i] + [t_now] + [theta_x] + [theta_y] + [T1] + [T2] + [T3] + [phi_x] + [phi_y] + [phi_z] + [psi_1] + [psi_2] + [psi_3]
         dl.appendData(data)
-
-        print("Iteration no. {}, THETA X: {:.2f}, THETA Y: {:.2f}".format(i, theta_x, theta_y))
+        
+        print("Iteration no. {}, THETA X: {:.5f}, THETA Y: {:.5f}".format(i, theta_x*180.0/3.14159, theta_y*180.0/3.14159))
         ser_dev.send_topic_data(101, commands) # Send motor torques
     
   
