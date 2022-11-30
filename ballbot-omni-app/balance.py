@@ -200,13 +200,14 @@ MAX_PLANAR_DUTY = 0.8
 
 # Proportional gains for the stability controllers (X-Z and Y-Z plane)
 
-KP_THETA_X = 11                                  # Adjust until the system balances
-KP_THETA_Y = 11                               # Adjust until the system balances
+KP_THETA_X = 8  #8                                # Adjust until the system balances
+KP_THETA_Y = 8  #8                             # Adjust until the system balances
 
-KD_THETA_X = 0.005
-KD_THETA_Y = 0.005
-#KP_THETA_X = 0
-#KP_THETA_Y = 0
+KD_THETA_X = 0.0000 #0.0
+KD_THETA_Y = 0.0000 #0.0
+
+KP_PHI_X_DT = .5
+KP_PHI_Y_DT = .5
 
 # ---------------------------------------------------------------------------
 #############################################################################
@@ -321,13 +322,19 @@ if __name__ == "__main__":
     desired_theta_x = 0.0
     desired_theta_y = 0.0
 
+    desired_phi_x_dt = 0.0
+    desired_phi_y_dt = 0.0
+
     # Error in theta
-    error_x = 0.0
-    error_y = 0.0
+    error_theta_x = 0.0
+    error_theta_y = 0.0
 
     # Previous error in theta
-    prev_error_x = 0.0
-    prev_error_y = 0.0
+    prev_error_theta_x = 0.0
+    prev_error_theta_y = 0.0
+
+    prev_phi_x = 0
+    prev_phi_y = 0
 
     commands['kill'] = 0.0
 
@@ -361,17 +368,36 @@ if __name__ == "__main__":
         theta_x = (states['theta_roll'])
         theta_y = (states['theta_pitch'])
 
+        # ---------------------------------------------------------
+
+        phi_x, phi_y, phi_z = compute_phi(psi_1, psi_2, psi_3)
+
+        phi_x_dt = (phi_x - prev_phi_x)/DT
+        phi_y_dt = (phi_y - prev_phi_y)/DT
+
         # Controller error terms
-        error_x = desired_theta_x - theta_x
-        error_y = desired_theta_y - theta_y
+        error_theta_x = desired_theta_x - theta_x
+        error_theta_y = desired_theta_y - theta_y
+
+        error_phi_x_dt = desired_phi_x_dt - phi_x_dt
+        error_phi_y_dt = desired_phi_y_dt - phi_y_dt
 
 
         # ---------------------------------------------------------
         # Compute motor torques (T1, T2, and T3) with Tx, Ty, and Tz
 
         # Proportional controller
-        Tx = KP_THETA_X * error_x + KD_THETA_X * (error_x - prev_error_x)/DT
-        Ty = KP_THETA_Y * error_y + KD_THETA_Y * (error_y - prev_error_y)/DT
+
+        theta_x_control_signal = KP_THETA_X * error_theta_x + KD_THETA_X * (error_theta_x - prev_error_theta_x)/DT
+        theta_y_control_signal = KP_THETA_Y * error_theta_y + KD_THETA_Y * (error_theta_y - prev_error_theta_y)/DT
+
+        phi_x_dt_control_signal = KP_PHI_X_DT * error_phi_x_dt
+        phi_y_dt_control_signal = KP_PHI_Y_DT * error_phi_y_dt 
+
+        print(theta_x_control_signal, phi_x_dt_control_signal)
+
+        Tx = theta_x_control_signal + phi_x_dt_control_signal
+        Ty = theta_y_control_signal + phi_y_dt_control_signal
 
         Tz = rob311_bt_controller.tz_demo_1
 
@@ -390,21 +416,20 @@ if __name__ == "__main__":
 
         # ---------------------------------------------------------
 
-        phi_x, phi_y, phi_z = compute_phi(psi_1, psi_2, psi_3)
-
-        # ---------------------------------------------------------
-
         print("Iteration no. {}, T1: {:.2f}, T2: {:.2f}, T3: {:.2f}".format(i, T1, T2, T3))
         
         commands['motor_1_duty'] = T1
         commands['motor_2_duty'] = T2
         commands['motor_3_duty'] = T3  
 
-        prev_error_x = error_x
-        prev_error_y = error_y
+        prev_error_theta_x = error_theta_x
+        prev_error_theta_y = error_theta_y
+
+        prev_phi_x = phi_x
+        prev_phi_y = phi_y
 
         # Construct the data matrix for saving - you can add more variables by replicating the format below
-        data = [i] + [t_now] + [theta_x] + [theta_y] + [T1] + [T2] + [T3] + [phi_x] + [phi_y] + [phi_z] + [psi_1] + [psi_2] + [psi_3]
+        data = [i] + [t_now] + [theta_x] + [theta_y] + [T1] + [T2] + [T3] + [phi_x] + [phi_y] + [phi_z] + [psi_1] + [psi_2] + [psi_3] + [phi_x_dt] + [phi_y_dt]
         dl.appendData(data)
         
         print("Iteration no. {}, THETA X: {:.5f}, THETA Y: {:.5f}".format(i, theta_x*180.0/3.14159, theta_y*180.0/3.14159))
