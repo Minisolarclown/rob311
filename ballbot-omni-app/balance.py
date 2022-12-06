@@ -7,6 +7,7 @@ from MBot.Messages.message_defs import mo_states_dtype, mo_cmds_dtype, mo_pid_pa
 from MBot.SerialProtocol.protocol import SerialProtocol
 from DataLogger import dataLogger
 from ps4_controller_api import ROB311BTController
+from collections import deque
 
 # ---------------------------------------------------------------------------
 """
@@ -203,11 +204,16 @@ MAX_PLANAR_DUTY = 0.8
 KP_THETA_X = 8  #8                                # Adjust until the system balances
 KP_THETA_Y = 8  #8                             # Adjust until the system balances
 
-KD_THETA_X = 0.0000 #0.0
-KD_THETA_Y = 0.0000 #0.0
+KD_THETA_X = 0.1 #0.0
+KD_THETA_Y = 0.1 #0.0
 
-KP_PHI_X_DT = .5
-KP_PHI_Y_DT = .5
+KP_PHI_X_DT = -0.5 #0.5
+KP_PHI_Y_DT = -0.5 # 0.5
+
+MAX_THETA_SIGNAL = 0.9
+MAX_PHI_SIGNAL = 0.6
+MAX_THETA = 4 #degrees
+MIN_PHI_DT = 0.3 #rad/s
 
 # ---------------------------------------------------------------------------
 #############################################################################
@@ -289,6 +295,14 @@ def compute_phi(psi_1, psi_2, psi_3):
     # returns phi_x, phi_y, phi_z
     return phi[0][0], phi[1][0], phi[2][0]
 
+def saturate(num, max):
+    if num > max:
+        return max
+    elif num < -max:
+        return -max
+    else:
+        return num
+
 if __name__ == "__main__":
     trial_num = int(input('Trial Number? '))
     filename = './pid_data/ROB311_Stability_Test_%i' % trial_num
@@ -336,6 +350,9 @@ if __name__ == "__main__":
     prev_phi_x = 0
     prev_phi_y = 0
 
+    phi_x_dt_samples = deque(maxlen=5)
+    phi_y_dt_samples = deque(maxlen=5)
+
     commands['kill'] = 0.0
 
     # Time for comms to sync
@@ -374,6 +391,12 @@ if __name__ == "__main__":
 
         phi_x_dt = (phi_x - prev_phi_x)/DT
         phi_y_dt = (phi_y - prev_phi_y)/DT
+        
+        phi_x_dt_samples.append(phi_x_dt)
+        phi_y_dt_samples.append(phi_y_dt)
+
+        phi_x_dt = np.mean(phi_x_dt_samples)
+        phi_y_dt = np.mean(phi_y_dt_samples)
 
         # Controller error terms
         error_theta_x = desired_theta_x - theta_x
@@ -391,10 +414,28 @@ if __name__ == "__main__":
         theta_x_control_signal = KP_THETA_X * error_theta_x + KD_THETA_X * (error_theta_x - prev_error_theta_x)/DT
         theta_y_control_signal = KP_THETA_Y * error_theta_y + KD_THETA_Y * (error_theta_y - prev_error_theta_y)/DT
 
-        phi_x_dt_control_signal = KP_PHI_X_DT * error_phi_x_dt
-        phi_y_dt_control_signal = KP_PHI_Y_DT * error_phi_y_dt 
+        theta_x_control_signal = saturate(theta_x_control_signal, MAX_THETA_SIGNAL)
+        theta_y_control_signal = saturate(theta_y_control_signal, MAX_THETA_SIGNAL)
 
-        print(theta_x_control_signal, phi_x_dt_control_signal)
+        phi_x_dt_control_signal = KP_PHI_X_DT * error_phi_x_dt
+        phi_y_dt_control_signal = KP_PHI_Y_DT * error_phi_y_dt
+
+        if abs(theta_x) > MAX_THETA:
+            phi_x_dt_control_signal = 0
+        
+        if abs(theta_y) > MAX_THETA:
+            phi_y_dt_control_signal = 0
+        
+        if abs(phi_x_dt) < MIN_PHI_DT:
+            phi_x_dt_control_signal = 0
+
+        if abs(phi_y_dt) < MIN_PHI_DT:
+            phi_y_dt_control_signal = 0
+        
+        phi_x_dt_control_signal = saturate(phi_x_dt_control_signal, MAX_PHI_SIGNAL)
+        phi_y_dt_control_signal = saturate(phi_y_dt_control_signal, MAX_PHI_SIGNAL)
+
+        print(phi_x_dt_control_signal, phi_y_dt_control_signal)
 
         Tx = theta_x_control_signal + phi_x_dt_control_signal
         Ty = theta_y_control_signal + phi_y_dt_control_signal
@@ -416,7 +457,7 @@ if __name__ == "__main__":
 
         # ---------------------------------------------------------
 
-        print("Iteration no. {}, T1: {:.2f}, T2: {:.2f}, T3: {:.2f}".format(i, T1, T2, T3))
+        #print("Iteration no. {}, T1: {:.2f}, T2: {:.2f}, T3: {:.2f}".format(i, T1, T2, T3))
         
         commands['motor_1_duty'] = T1
         commands['motor_2_duty'] = T2
@@ -429,10 +470,10 @@ if __name__ == "__main__":
         prev_phi_y = phi_y
 
         # Construct the data matrix for saving - you can add more variables by replicating the format below
-        data = [i] + [t_now] + [theta_x] + [theta_y] + [T1] + [T2] + [T3] + [phi_x] + [phi_y] + [phi_z] + [psi_1] + [psi_2] + [psi_3] + [phi_x_dt] + [phi_y_dt]
+        data = [i] + [t_now] + [theta_x] + [theta_y] + [T1] + [T2] + [T3] + [phi_x] + [phi_y] + [phi_z] + [psi_1] + [psi_2] + [psi_3] + [phi_x_dt] + [phi_y_dt] + [theta_x_control_signal] + [theta_y_control_signal] + [phi_x_dt_control_signal] + [phi_y_dt_control_signal]
         dl.appendData(data)
         
-        print("Iteration no. {}, THETA X: {:.5f}, THETA Y: {:.5f}".format(i, theta_x*180.0/3.14159, theta_y*180.0/3.14159))
+        #print("Iteration no. {}, THETA X: {:.5f}, THETA Y: {:.5f}".format(i, theta_x*180.0/3.14159, theta_y*180.0/3.14159))
         ser_dev.send_topic_data(101, commands) # Send motor torques
     
   
